@@ -64,6 +64,7 @@ namespace NuGet.VisualStudio
                         {
                             var installedPackages = await project.GetInstalledPackagesAsync(CancellationToken.None);
                             var buildIntegratedProject = project as BuildIntegratedNuGetProject;
+                            var projectKProject = project as ProjectKNuGetProjectBase;
 
                             foreach (var package in installedPackages)
                             {
@@ -76,7 +77,7 @@ namespace NuGet.VisualStudio
 
                                 // find packages using the solution level packages folder
                                 string installPath;
-                                if (buildIntegratedProject != null)
+                                if (buildIntegratedProject != null || projectKProject != null)
                                 {
                                     installPath = BuildIntegratedProjectUtility.GetPackagePathFromGlobalSource(
                                         effectiveGlobalPackagesFolder,
