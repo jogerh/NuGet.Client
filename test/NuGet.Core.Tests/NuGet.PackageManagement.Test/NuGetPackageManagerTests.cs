@@ -21,6 +21,8 @@ using System.Xml.Linq;
 using Test.Utility;
 using Xunit;
 using Strings = NuGet.ProjectManagement.Strings;
+using NuGet.ProjectManagement;
+using System.Diagnostics;
 
 namespace NuGet.Test
 {
@@ -4444,37 +4446,94 @@ namespace NuGet.Test
         [Fact]
         public async Task ExecuteNuGetProjectActionsAsync_FailsIfThePackageTypeIsManaged()
         {
-            await VerifyFailureForPackageTypes(new[] { new PackageType("Managed", new Version(2, 0)) });
+            await VerifyFailureForPackageTypes(
+                new TestNuGetProject(new PackageReference[0]),
+                new[] { new PackageType("Managed", new Version(2, 0)) },
+                "Package 'ManagedCodeConventions 1.0.0' has a package type 'Managed' that is not supported by project 'TestNuGetProject'.");
         }
 
         [Fact]
         public async Task ExecuteNuGetProjectActionsAsync_FailsIfThePackageTypeIsUnexpected()
         {
-            await VerifyFailureForPackageTypes(new[] { new PackageType("Fake", new Version(1, 2)) });
+            await VerifyFailureForPackageTypes(
+                new TestNuGetProject(new PackageReference[0]),
+                new[] { new PackageType("Fake", new Version(1, 2)) },
+                "Package 'ManagedCodeConventions 1.0.0' has a package type 'Fake' that is not supported by project 'TestNuGetProject'.");
         }
 
         [Fact]
         public async Task ExecuteNuGetProjectActionsAsync_FailsIfThePackageTypeIsDotnetCliTool()
         {
-            await VerifyFailureForPackageTypes(new[] { PackageType.DotnetCliTool });
-        }
-
-        [Fact]
-        public async Task ExecuteNuGetProjectActionsAsync_FailsIfThePackageTypeIsDependency()
-        {
-            await VerifyFailureForPackageTypes(new[] { PackageType.Dependency });
+            await VerifyFailureForPackageTypes(
+                new TestNuGetProject(new PackageReference[0]),
+                new[] { PackageType.DotnetCliTool },
+                "Package 'ManagedCodeConventions 1.0.0' has a package type 'DotnetCliTool' that is not supported by project 'TestNuGetProject'.");
         }
 
         [Fact]
         public async Task ExecuteNuGetProjectActionsAsync_FailsIfMultiplePackageTypes()
         {
-            await VerifyFailureForPackageTypes(new[] { PackageType.Legacy, PackageType.Legacy });
+            await VerifyFailureForPackageTypes(
+                new TestNuGetProject(new PackageReference[0]),
+                new[] { PackageType.Legacy, PackageType.Legacy },
+                "Package 'ManagedCodeConventions 1.0.0' has multiple package types, which is not supported.");
+        }
+
+        [Fact]
+        public async Task ExecuteNuGetProjectActionsAsync_SucceedsIfThePackageTypeIsDependency()
+        {
+            await VerifySuccessForPackageTypes(
+                new TestNuGetProject(new PackageReference[0]),
+                new[] { PackageType.Dependency });
         }
 
         [Fact]
         public async Task ExecuteNuGetProjectActionsAsync_SucceedsIfThePackageTypeIsLegacy()
         {
-            await VerifySuccessForPackageTypes(new[] { PackageType.Legacy });
+            await VerifySuccessForPackageTypes(
+                new TestNuGetProject(new PackageReference[0]),
+                new[] { PackageType.Legacy });
+        }
+
+        [Fact]
+        public async Task ExecuteNuGetProjectActionsAsync_SucceedsIfNoPackageTypes()
+        {
+            await VerifySuccessForPackageTypes(
+                new TestNuGetProject(new PackageReference[0]),
+                new PackageType[0]);
+        }
+
+        [Fact]
+        public async Task ExecuteNuGetProjectActionsAsync_ProjectK_SucceedsIfThePackageTypeIsDotnetCliTool()
+        {
+            await VerifySuccessForPackageTypes(
+                new TestProjectKNuGetProject(),
+                new[] { PackageType.DotnetCliTool });
+        }
+
+        [Fact]
+        public async Task ExecuteNuGetProjectActionsAsync_ProjectK_SucceedsIfThePackageTypeIsDependency()
+        {
+            await VerifySuccessForPackageTypes(
+                new TestProjectKNuGetProject(),
+                new[] { PackageType.Dependency });
+        }
+
+        [Fact]
+        public async Task ExecuteNuGetProjectActionsAsync_ProjectK_SucceedsIfThePackageTypeIsLegacy()
+        {
+            await VerifySuccessForPackageTypes(
+                new TestProjectKNuGetProject(),
+                new[] { PackageType.Legacy });
+        }
+
+        [Fact]
+        public async Task ExecuteNuGetProjectActionsAsync_BuildIntegrated_FailsIfThePackageTypeIsUnexpected()
+        {
+            await VerifyFailureForPackageTypes(
+                new TestNuGetProject(new PackageReference[0]),
+                new[] { new PackageType("Fake", new Version(1, 2)) },
+                "Package 'ManagedCodeConventions 1.0.0' has a package type 'Fake' that is not supported by project 'TestNuGetProject'.");
         }
 
         // [Fact]
@@ -4689,7 +4748,10 @@ namespace NuGet.Test
             Assert.Equal(bVersionRange.ToString(), packageDependency.VersionRange.ToString());
         }
 
-        private static async Task VerifyFailureForPackageTypes(IReadOnlyList<PackageType> packageTypes)
+        private static async Task VerifyFailureForPackageTypes(
+            NuGetProject nugetProject,
+            IReadOnlyList<PackageType> packageTypes,
+            string expected)
         {
             // Arrange
             var packageSource = new Configuration.PackageSource("some source");
@@ -4701,7 +4763,6 @@ namespace NuGet.Test
             using (var testSolutionManager = new TestSolutionManager(true))
             {
                 var deleteOnRestartManager = new TestDeleteOnRestartManager();
-                var nugetProject = new TestNuGetProject(new Packaging.PackageReference[0]);
 
                 var nuGetPackageManager = new NuGetPackageManager(
                     sourceRepositoryProvider,
@@ -4712,18 +4773,19 @@ namespace NuGet.Test
                 var actions = new[] { NuGetProjectAction.CreateInstallProjectAction(identity, sourceRepositoryProvider.CreateRepository(packageSource)) };
 
                 // Act and Assert
-                var ex = await Assert.ThrowsAsync<MinClientVersionException>(() =>
+                var ex = await Assert.ThrowsAsync<PackagingException>(() =>
                     nuGetPackageManager.ExecuteNuGetProjectActionsAsync(
                         nugetProject,
                         actions,
                         new TestNuGetProjectContext(),
                         default(CancellationToken)));
-                Assert.Equal("Package 'ManagedCodeConventions 1.0.0' uses features that are not supported by the current version of NuGet. " +
-                    "To upgrade NuGet, see http://docs.nuget.org/consume/installing-nuget.", ex.Message);
+                Assert.Equal(expected, ex.Message);
             }
         }
 
-        private static async Task VerifySuccessForPackageTypes(IReadOnlyList<PackageType> packageTypes)
+        private static async Task VerifySuccessForPackageTypes(
+            NuGetProject nugetProject,
+            IReadOnlyList<PackageType> packageTypes)
         {
             // Arrange
             var packageSource = new Configuration.PackageSource("some source");
@@ -4735,7 +4797,6 @@ namespace NuGet.Test
             using (var testSolutionManager = new TestSolutionManager(true))
             {
                 var deleteOnRestartManager = new TestDeleteOnRestartManager();
-                var nugetProject = new TestNuGetProject(new Packaging.PackageReference[0]);
 
                 var nuGetPackageManager = new NuGetPackageManager(
                     sourceRepositoryProvider,

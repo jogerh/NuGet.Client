@@ -17,6 +17,7 @@ using NuGet.Commands;
 using NuGet.Common;
 using NuGet.Configuration;
 using NuGet.Frameworks;
+using NuGet.LibraryModel;
 using NuGet.Packaging;
 using NuGet.Packaging.Core;
 using NuGet.ProjectManagement;
@@ -24,6 +25,7 @@ using NuGet.ProjectManagement.Projects;
 using NuGet.ProjectModel;
 using NuGet.Protocol;
 using NuGet.Protocol.Core.Types;
+using NuGet.Repositories;
 using NuGet.Resolver;
 using NuGet.Versioning;
 
@@ -51,7 +53,6 @@ namespace NuGet.PackageManagement
         /// <summary>
         /// To construct a NuGetPackageManager that does not need a SolutionManager like NuGet.exe
         /// </summary>
-
         public NuGetPackageManager(
                 ISourceRepositoryProvider sourceRepositoryProvider,
                 Configuration.ISettings settings,
@@ -1954,13 +1955,21 @@ namespace NuGet.PackageManagement
                     buildIntegratedProject.ProjectName,
                     buildIntegratedProject.JsonConfigPath);
 
-
                 // Restore based on the modified package spec. This operation does not write the lock file to disk.
-                var restoreResult = await BuildIntegratedRestoreUtility.RestoreAsync(buildIntegratedProject,
-                packageSpec,
-                buildIntegratedContext,
-                providers,
-                token);
+                var restoreResult = await BuildIntegratedRestoreUtility.RestoreAsync(
+                    buildIntegratedProject,
+                    packageSpec,
+                    buildIntegratedContext,
+                    providers,
+                    token);
+
+                await InstallationCompatibilityUtility.EnsurePackageCompatibilityAsync(
+                    buildIntegratedProject,
+                    effectiveGlobalPackagesFolder,
+                    nuGetProjectActions,
+                    restoreResult,
+                    logger,
+                    token);
 
                 return new BuildIntegratedProjectAction(nuGetProjectActions.First().PackageIdentity,
                        nuGetProjectActions.First().NuGetProjectActionType,
@@ -2258,7 +2267,7 @@ namespace NuGet.PackageManagement
             CancellationToken token)
         {
             // TODO: EnsurePackageCompatibility check should be performed in preview. Can easily avoid a lot of rollback
-            EnsurePackageCompatibility(resourceResult, packageIdentity);
+            InstallationCompatibilityUtility.EnsurePackageCompatibility(nuGetProject, packageIdentity, resourceResult);
 
             packageWithDirectoriesToBeDeleted.Remove(packageIdentity);
             return nuGetProject.InstallPackageAsync(packageIdentity, resourceResult, nuGetProjectContext, token);
@@ -2503,51 +2512,6 @@ namespace NuGet.PackageManagement
                 {
                     ideExecutionContext.IDEDirectInstall = null;
                 }
-            }
-        }
-
-        private static void EnsurePackageCompatibility(DownloadResourceResult downloadResourceResult, PackageIdentity packageIdentity)
-        {
-            NuspecReader nuspecReader;
-
-            if (downloadResourceResult.PackageReader != null)
-            {
-                nuspecReader = downloadResourceResult.PackageReader.NuspecReader;
-            }
-            else
-            {
-                using (var packageReader = new PackageArchiveReader(downloadResourceResult.PackageStream, leaveStreamOpen: true))
-                {
-                    nuspecReader = packageReader.NuspecReader;
-                }
-            }
-
-            // validate that the current version of NuGet satisfies the minVersion attribute specified in the .nuspec
-            MinClientVersionUtility.VerifyMinClientVersion(nuspecReader);
-
-            // Validate the package type. There must be zero package types or exactly one package
-            // type that is one of the recognized package types.
-            var packageTypes = nuspecReader.GetPackageTypes();
-            var validPackageType = true;
-
-            if (packageTypes.Count > 1)
-            {
-                validPackageType = false;
-            }
-            else if (packageTypes.Count == 1)
-            {
-                var packageType = packageTypes[0];
-                if (packageType != PackageType.Legacy)
-                {
-                    validPackageType = false;
-                }
-            }
-
-            if (!validPackageType)
-            {
-                throw new MinClientVersionException(
-                    string.Format(CultureInfo.CurrentCulture, Strings.UnsupportedPackageFeature,
-                    packageIdentity.Id + " " + packageIdentity.Version.ToNormalizedString()));
             }
         }
     }
