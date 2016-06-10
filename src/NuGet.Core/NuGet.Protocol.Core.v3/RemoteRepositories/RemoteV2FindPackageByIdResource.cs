@@ -150,6 +150,9 @@ namespace NuGet.Protocol
                 try
                 {
                     var results = new List<PackageInfo>();
+                    var uris = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                    uris.Add(uri);
                     var page = 1;
                     while (true)
                     {
@@ -188,8 +191,8 @@ namespace NuGet.Protocol
                             // Find the next url for continuation
                             var nextUri = V2FeedParser.GetNextUrl(doc);
 
-                            // Stop if there's nothing else to GET
-                            if (string.IsNullOrEmpty(nextUri))
+                            // Stop if there's nothing else to GET or page already downloaded
+                            if (string.IsNullOrEmpty(nextUri) || !uris.Add(nextUri))
                             {
                                 break;
                             }

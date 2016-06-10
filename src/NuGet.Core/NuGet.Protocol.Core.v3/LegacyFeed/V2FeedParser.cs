@@ -373,9 +373,11 @@ namespace NuGet.Protocol
             CancellationToken token)
         {
             var results = new List<V2FeedPackageInfo>();
+            var uris = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var page = 1;
 
             var uri = string.Format("{0}{1}", _baseAddress, relativeUri);
+            uris.Add(uri);
 
             // first request
             Task<XDocument> docRequest = LoadXmlAsync(uri, ignoreNotFounds, log, token);
@@ -402,12 +404,12 @@ namespace NuGet.Protocol
                 if (max < 0 || results.Count < max)
                 {
                     // Request the next url in parallel to parsing the current page
-                    if (!string.IsNullOrEmpty(nextUri) && uri != nextUri)
+                    // Never request for a duplicate page to avoid infinite loop
+                    if (!string.IsNullOrEmpty(nextUri) && uris.Add(nextUri))
                     {
                         // a bug on the server side causes the same next link to be returned
                         // for every page. To avoid falling into an infinite loop we must
-                        // keep track here.
-                        uri = nextUri;
+                        // keep track of all uri
 
                         docRequest = LoadXmlAsync(nextUri, ignoreNotFounds, log, token);
                     }
